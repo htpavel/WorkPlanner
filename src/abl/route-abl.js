@@ -1,6 +1,5 @@
 const RouteDao = require('../dao/route-dao');
 
-// Pomocná matematická funkce (přesunuta z hlavního serveru)
 function getDistance(p1, p2) {
     const R = 6371;
     const dLat = (p2.lat - p1.lat) * Math.PI / 180;
@@ -11,12 +10,12 @@ function getDistance(p1, p2) {
     return R * c;
 }
 
-// Interní funkce pro přepočet trasy (Greedy algoritmus)
-function _recalculateRoute() {
-    const config = RouteDao.getConfig();
-    if (!config.isAutomatic) return;
+// Přepočet upraven na konkrétní routeId
+function _recalculateRoute(routeId) {
+    const route = RouteDao.getRouteById(routeId);
+    if (!route || !route.isAutomatic) return;
 
-    const stops = RouteDao.getStops();
+    const stops = RouteDao.getStopsByRouteId(routeId);
     let unvisited = [...stops];
     let sortedStops = [];
     let currentPoint = RouteDao.getDepot();
@@ -42,58 +41,80 @@ function _recalculateRoute() {
         stop.sequenceNumber = index + 1;
     });
 
-    RouteDao.updateStops(sortedStops);
+    RouteDao.updateStopsForRoute(routeId, sortedStops);
 }
 
 const RouteAbl = {
-    getOverview() {
-        const config = RouteDao.getConfig();
-        const depot = RouteDao.getDepot();
-        const stops = RouteDao.getStops();
+    // Získání seznamu VŠECH tras pro kalendář
+    getCalendar() {
+        return RouteDao.getAllRoutes();
+    },
 
+    // Detail jedné konkrétní trasy i s jejími zastávkami
+    getRouteDetail(routeId) {
+        const route = RouteDao.getRouteById(routeId);
+        if (!route) throw new Error("Trasa nenalezena.");
+
+        const stops = RouteDao.getStopsByRouteId(routeId);
         return {
-            config,
-            depot,
+            ...route,
+            depot: RouteDao.getDepot(),
             stops: stops.sort((a, b) => a.sequenceNumber - b.sequenceNumber)
         };
     },
 
     createBooking(bookingData) {
-        const config = RouteDao.getConfig();
-        const stops = RouteDao.getStops();
+        const routeId = bookingData.routeId;
+        const route = RouteDao.getRouteById(routeId);
+        
+        if (!route) throw new Error("Cílová trasa neexistuje.");
 
-        if (stops.length >= config.maxClients) {
-            throw new Error("Kapacita na tento den je již plná!");
+        if (route.currentClients >= route.maxClients) {
+            throw new Error("Kapacita této trasy na daný den je již plná!");
         }
 
         const newStop = {
             id: Date.now(),
-            ...bookingData,
-            sequenceNumber: stops.length + 1
+            routeId: routeId,
+            name: bookingData.name,
+            address: bookingData.address,
+            lat: bookingData.lat,
+            lng: bookingData.lng,
+            sequenceNumber: route.currentClients + 1
         };
 
         RouteDao.addStop(newStop);
-        _recalculateRoute();
         
+        // Aktualizujeme stav naplnění v trase
+        RouteDao.updateRoute(routeId, { currentClients: route.currentClients + 1 });
+        
+        _recalculateRoute(routeId);
         return newStop;
     },
 
     deleteBooking(id) {
-        const wasDeleted = RouteDao.deleteStop(id);
-        if (!wasDeleted) {
-            throw new Error("Klient nenalezen.");
+        const deletedStop = RouteDao.deleteStop(id);
+        if (!deletedStop) throw new Error("Klient nenalezen.");
+
+        const routeId = deletedStop.routeId;
+        const route = RouteDao.getRouteById(routeId);
+        
+        if (route) {
+            RouteDao.updateRoute(routeId, { currentClients: Math.max(0, route.currentClients - 1) });
+            _recalculateRoute(routeId);
         }
 
-        _recalculateRoute();
         return { message: "Klient odhlášen, trasa přepočítána." };
     },
 
-    updateConfig(configData) {
-        const updatedConfig = RouteDao.updateConfig(configData);
-        if (updatedConfig.isAutomatic) {
-            _recalculateRoute();
+    updateConfig(routeId, configData) {
+        const updatedRoute = RouteDao.updateRoute(routeId, configData);
+        if (!updatedRoute) throw new Error("Trasa nenalezena.");
+
+        if (updatedRoute.isAutomatic) {
+            _recalculateRoute(routeId);
         }
-        return updatedConfig;
+        return updatedRoute;
     }
 };
 

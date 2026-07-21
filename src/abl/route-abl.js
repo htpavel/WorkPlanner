@@ -1,4 +1,5 @@
 const RouteDao = require('../dao/route-dao');
+const AddressDao = require('../dao/address-dao');
 
 // --- Pomocné funkce pro práci s časem ---
 function timeToMins(timeStr) {
@@ -18,9 +19,9 @@ function getDistanceFallback(p1, p2) {
     const R = 6371;
     const dLat = (p2.lat - p1.lat) * Math.PI / 180;
     const dLng = (p2.lng - p1.lng) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
 }
 
@@ -59,10 +60,10 @@ async function _recalculateRoute(routeId) {
     // 🔍 1. KROK: Sloučení klientů se stejnými GPS do fyzických zastávek
     // ==========================================
     const aggregatedStopsMap = {};
-    
+
     stops.forEach(client => {
         const geoKey = `${client.lat.toFixed(5)}_${client.lng.toFixed(5)}`;
-        
+
         if (!aggregatedStopsMap[geoKey]) {
             aggregatedStopsMap[geoKey] = {
                 lat: client.lat,
@@ -74,18 +75,18 @@ async function _recalculateRoute(routeId) {
                 sequenceNumber: 0
             };
         }
-        
+
         aggregatedStopsMap[geoKey].clients.push({
             id: client.id,
             name: client.name
         });
-        
+
         aggregatedStopsMap[geoKey].serviceDurationMins += route.serviceDurationMins;
     });
 
     let physicalStops = Object.values(aggregatedStopsMap);
     let totalDistance = 0;
-    let currentTimeMins = timeToMins(route.startTime); 
+    let currentTimeMins = timeToMins(route.startTime);
     const startMins = currentTimeMins;
 
     // ==========================================
@@ -121,7 +122,7 @@ async function _recalculateRoute(routeId) {
                     stop.sequenceNumber = i;
 
                     currentTimeMins += stop.serviceDurationMins;
-                    
+
                     orderedStops.push(stop);
                 }
 
@@ -138,7 +139,7 @@ async function _recalculateRoute(routeId) {
                         if (originalClient) {
                             originalClient.sequenceNumber = pStop.sequenceNumber;
                             originalClient.arrivalTime = pStop.arrivalTime;
-                            originalClient.serviceDurationMins = pStop.serviceDurationMins; 
+                            originalClient.serviceDurationMins = pStop.serviceDurationMins;
                             originalClient.clientsOnStopCount = pStop.clients.length;
                             finalClientStops.push(originalClient);
                         }
@@ -163,19 +164,19 @@ async function _recalculateRoute(routeId) {
     // ==========================================
     console.log(`Počítám manuální trasu ${routeId} s reálnými časy...`);
     let currentPoint = route.startCoords;
-    
+
     physicalStops.forEach(pStop => {
         const originalClients = stops.filter(c => pStop.clients.some(pc => pc.id === c.id));
         pStop.sequenceNumber = Math.min(...originalClients.map(c => c.sequenceNumber));
     });
-    
+
     const orderedPhysicalStops = physicalStops.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
     let orderedStopsResult = [];
 
     for (let i = 0; i < orderedPhysicalStops.length; i++) {
         const pStop = orderedPhysicalStops[i];
         const specs = await getRealRouteSpecs(currentPoint, pStop);
-        
+
         totalDistance += specs.distanceKm;
         currentTimeMins += specs.durationMins;
 
@@ -215,7 +216,7 @@ async function _recalculateRoute(routeId) {
 
 const RouteAbl = {
     async getCalendar() {
-        const routes = await RouteDao.getAllRoutes(); 
+        const routes = await RouteDao.getAllRoutes();
         return routes;
     },
 
@@ -225,7 +226,7 @@ const RouteAbl = {
 
         const stops = await RouteDao.getStopsByRouteId(routeId);
         const depot = await RouteDao.getDepot();
-        
+
         return {
             ...route,
             depot: depot,
@@ -236,24 +237,42 @@ const RouteAbl = {
     async createBooking(bookingData) {
         const routeId = bookingData.routeId;
         const route = await RouteDao.getRouteById(routeId);
-        
+
         if (!route) throw new Error("Cílová trasa neexistuje.");
         if (route.currentClients >= route.maxClients) throw new Error("Kapacita trasy je plná!");
+
+        let addressText = bookingData.address;
+        let lat = bookingData.lat;
+        let lng = bookingData.lng;
+
+        // Pokud předáme addressId, načteme souřadnice a text adresy z databáze adres
+        if (bookingData.addressId) {
+            const savedAddress = await AddressDao.getById(bookingData.addressId);
+            if (!savedAddress) throw new Error("Vybraná doručovací adresa neexistuje.");
+
+            addressText = savedAddress.address;
+            lat = parseFloat(savedAddress.lat);
+            lng = parseFloat(savedAddress.lng);
+        }
+
+        if (!addressText || !lat || !lng) {
+            throw new Error("Chybí specifikace doručovací adresy nebo souřadnic.");
+        }
 
         const newStop = {
             id: Date.now(),
             routeId: routeId,
             name: bookingData.name,
-            address: bookingData.address,
-            lat: bookingData.lat,
-            lng: bookingData.lng,
+            address: addressText,
+            lat: lat,
+            lng: lng,
             sequenceNumber: route.currentClients + 1,
             arrivalTime: ""
         };
 
         await RouteDao.addStop(newStop);
         await RouteDao.updateRoute(routeId, { currentClients: route.currentClients + 1 });
-        
+
         await _recalculateRoute(routeId);
         return newStop;
     },
@@ -264,7 +283,7 @@ const RouteAbl = {
 
         const routeId = deletedStop.routeId;
         const route = await RouteDao.getRouteById(routeId);
-        
+
         if (route) {
             await RouteDao.updateRoute(routeId, { currentClients: Math.max(0, route.currentClients - 1) });
             await _recalculateRoute(routeId);

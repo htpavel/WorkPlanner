@@ -67,6 +67,38 @@ const UserDao = {
         ]);
 
         return this._mapUser(rows[0]);
+    },
+    async update(userId, userData) {
+        const query = `
+            UPDATE users
+            SET name = COALESCE($1, name),
+                role = COALESCE($2, role),
+                password = COALESCE($3, password)
+            WHERE id = $4
+            RETURNING id, username, role, name;
+        `;
+        const { rows } = await pool.query(query, [
+            userData.name,
+            userData.role,
+            userData.password,
+            userId
+        ]);
+        return rows[0] || null;
+    },
+
+    /**
+     * Načtení uživatele podle ID
+     */
+    async getById(userId) {
+        const query = `SELECT id, username, role, name FROM users WHERE id = $1;`;
+        const { rows } = await pool.query(query, [userId]);
+        return rows[0] || null;
+    },
+    
+    async delete(userId) {
+        const query = `DELETE FROM users WHERE id = $1 RETURNING id;`;
+        const { rows } = await pool.query(query, [userId]);
+        return rows[0] ? rows[0].id : null;
     }
 };
 

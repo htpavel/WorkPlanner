@@ -1,38 +1,44 @@
 const express = require('express');
 const router = express.Router();
 const UserAbl = require('../abl/user-abl');
-const UserValidation = require('../validation/user-validation');
 
-// Registrace uživatele
-router.post('/register', (req, res) => {
-    const validation = UserValidation.validateRegister(req.body);
-    if (!validation.isValid) return res.status(400).json({ errors: validation.errors });
-
+/**
+ * POST /api/user/register
+ * Registrace nového uživatele
+ */
+router.post('/register', async (req, res) => {
     try {
-        const result = UserAbl.register(req.body);
+        const result = await UserAbl.register(req.body);
         res.status(201).json(result);
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
 });
 
-// Přihlášení uživatele
-router.post('/login', (req, res) => {
-    const validation = UserValidation.validateLogin(req.body);
-    if (!validation.isValid) return res.status(400).json({ errors: validation.errors });
-
+/**
+ * POST /api/user/login
+ * Přihlášení registrovaného uživatele
+ */
+router.post('/login', async (req, res) => {
     try {
-        const result = UserAbl.login(req.body);
+        const result = await UserAbl.login(req.body);
         res.json(result);
     } catch (error) {
         res.status(401).json({ error: error.message });
     }
 });
 
-// Přihlášení hosta
-router.post('/guest', (req, res) => {
-    const result = UserAbl.createGuestSession();
-    res.json(result);
+/**
+ * POST /api/user/anonym
+ * Přihlášení jako anonymní host (vygeneruje platný JWT s rolí GUEST)
+ */
+router.post('/anonym', async (req, res) => {
+    try {
+        const result = await UserAbl.createGuestSession();
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 module.exports = router;

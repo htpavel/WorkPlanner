@@ -1,23 +1,72 @@
-// Simulovaná databáze uživatelů
-let users = [
-    { id: "u1", username: "disp_tomas", passwordHash: "secret123", role: "DISPATCHER", name: "Tomáš Dispečer" },
-    { id: "u2", username: "driver_jan", passwordHash: "secret123", role: "DRIVER", name: "Jan Řidič" },
-    { id: "u3", username: "katka_zakaznik", passwordHash: "secret123", role: "CUSTOMER", name: "Kateřina Z." }
-];
+const { Pool } = require('pg');
+const fs = require('fs');
+const path = require('path');
+
+// Načtení connection stringu (stejně jako v route-dao)
+let connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+    try {
+        const configPath = path.join(__dirname, '../../config.json');
+        if (fs.existsSync(configPath)) {
+            const configFile = fs.readFileSync(configPath, 'utf8');
+            const config = JSON.parse(configFile);
+            connectionString = config.databaseUrl;
+        }
+    } catch (error) {
+        console.error("Nepodařilo se načíst config.json v user-dao:", error.message);
+    }
+}
+
+const pool = new Pool({
+    connectionString: connectionString,
+    ssl: { rejectUnauthorized: false }
+});
 
 const UserDao = {
-    getByUsername(username) {
-        return users.find(u => u.username === username);
+    // Pomocná metoda pro mapování z DB do JS objektu
+    _mapUser(dbRow) {
+        if (!dbRow) return null;
+        return {
+            id: dbRow.id,
+            username: dbRow.username,
+            password: dbRow.password, // V reálné aplikaci by zde byl hash hesla
+            role: dbRow.role,
+            name: dbRow.name
+        };
     },
 
-    getById(id) {
-        return users.find(u => u.id === id);
+    // Najde uživatele podle ID (asynchronně!)
+    async getById(id) {
+        const query = 'SELECT id, username, password, role, name FROM users WHERE id = $1;';
+        const { rows } = await pool.query(query, [id]);
+        return this._mapUser(rows[0]);
     },
 
-    create(user) {
-        const newUser = { id: `u_${Date.now()}`, ...user };
-        users.push(newUser);
-        return newUser;
+    // Pomocná metoda pro budoucí přihlašování
+    async getByUsername(username) {
+        const query = 'SELECT id, username, password, role, name FROM users WHERE username = $1;';
+        const { rows } = await pool.query(query, [username]);
+        return this._mapUser(rows[0]);
+    },
+    async create(user) {
+        const query = `
+            INSERT INTO users (id, username, password, role, name)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, username, password, role, name;
+        `;
+        // Vytvoříme unikátní ID typu 'u4', 'u5' atd. na základě času, pokud ID nebylo dodáno
+        const userId = user.id || 'u_' + Date.now();
+
+        const { rows } = await pool.query(query, [
+            userId,
+            user.username,
+            user.password, // V produkci doporučuji hashovat pomocí bcrypt
+            user.role,
+            user.name
+        ]);
+
+        return this._mapUser(rows[0]);
     }
 };
 

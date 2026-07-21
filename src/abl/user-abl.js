@@ -1,45 +1,111 @@
+const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const path = require('path');
 const UserDao = require('../dao/user-dao');
 
+// --- Načtení JWT_SECRET z .env nebo z config.json ---
+let JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+    try {
+        const configPath = path.join(__dirname, '../../config.json');
+        if (fs.existsSync(configPath)) {
+            const configFile = fs.readFileSync(configPath, 'utf8');
+            const config = JSON.parse(configFile);
+            JWT_SECRET = config.jwtSecret;
+        }
+    } catch (error) {
+        console.error("Nepodařilo se načíst config.json v user-abl:", error.message);
+    }
+}
+
+// Úplný fallback pro lokální vývoj
+if (!JWT_SECRET) {
+    JWT_SECRET = "fallback_super_tajny_klic_123456";
+}
+
 const UserAbl = {
-    register(userData) {
-        const existing = UserDao.getByUsername(userData.username);
-        if (existing) {
+    /**
+     * Registrace nového uživatele
+     */
+    async register(userData) {
+        const { username, password, role, name } = userData;
+
+        const existingUser = await UserDao.getByUsername(username);
+        if (existingUser) {
             throw new Error("Uživatelské jméno je již obsazené.");
         }
 
-        const newUser = {
-            username: userData.username,
-            passwordHash: userData.password, // V produkci: bcrypt.hashSync(userData.password)
-            role: userData.role || "CUSTOMER",
-            name: userData.name || userData.username
-        };
+        const newUser = await UserDao.create({
+            username,
+            password, 
+            role,
+            name
+        });
 
-        const createdUser = UserDao.create(newUser);
-        
-        // Vrátíme data bez hesla
-        return { id: createdUser.id, username: createdUser.username, role: createdUser.role, name: createdUser.name };
+        return newUser;
     },
 
-    login(credentials) {
-        const user = UserDao.getByUsername(credentials.username);
-        if (!user || user.passwordHash !== credentials.password) {
-            throw new Error("Nesprávné jméno nebo heslo.");
+    /**
+     * Přihlášení uživatele
+     */
+    async login(loginData) {
+        const { username, password } = loginData;
+
+        const user = await UserDao.getByUsername(username);
+        if (!user) {
+            throw new Error("Neplatné uživatelské jméno nebo heslo.");
         }
 
-        // V produkci by se zde vygeneroval a vrátil JWT Token
+        if (user.password !== password) {
+            throw new Error("Neplatné uživatelské jméno nebo heslo.");
+        }
+
+        const token = jwt.sign(
+            { 
+                id: user.id, 
+                username: user.username, 
+                role: user.role, 
+                name: user.name 
+            }, 
+            JWT_SECRET, 
+            { expiresIn: '24h' }
+        );
+
         return {
-            message: "Přihlášení úspěšné",
-            token: `mock-jwt-token-for-${user.id}`,
-            user: { id: user.id, username: user.username, role: user.role, name: user.name }
+            user: {
+                id: user.id,
+                username: user.username,
+                role: user.role,
+                name: user.name
+            },
+            token: token
         };
     },
 
-    // Speciální metoda pro vytvoření hosta
-    createGuestSession() {
+    /**
+     * Vytvoření sezení pro anonymního hosta
+     */
+    async createGuestSession() {
+        const token = jwt.sign(
+            { 
+                id: "guest_anon", 
+                username: "guest_" + Date.now(), 
+                role: "GUEST", 
+                name: "Anonymní host" 
+            }, 
+            JWT_SECRET, 
+            { expiresIn: '2h' }
+        );
+
         return {
-            message: "Přihlášen jako host",
-            token: `mock-jwt-token-for-guest-${Date.now()}`,
-            user: { id: `guest_${Date.now()}`, username: "host", role: "GUEST", name: "Anonymní host" }
+            user: {
+                id: "guest_anon",
+                username: "guest",
+                role: "GUEST",
+                name: "Host"
+            },
+            token: token
         };
     }
 };

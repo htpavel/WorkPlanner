@@ -46,12 +46,12 @@ async function getRealRouteSpecs(p1, p2) {
 
 // --- HLAVNÍ VÝPOČET TRASY S OPTIMALIZACÍ A SLOUČENÍM ADRES ---
 async function _recalculateRoute(routeId) {
-    const route = RouteDao.getRouteById(routeId);
+    const route = await RouteDao.getRouteById(routeId);
     if (!route) return;
 
-    const stops = RouteDao.getStopsByRouteId(routeId);
+    const stops = await RouteDao.getStopsByRouteId(routeId);
     if (stops.length === 0) {
-        RouteDao.updateRoute(routeId, { totalDistance_km: 0, totalDuration_mins: 0, endTime: route.startTime });
+        await RouteDao.updateRoute(routeId, { totalDistance_km: 0, totalDuration_mins: 0, endTime: route.startTime });
         return;
     }
 
@@ -61,7 +61,6 @@ async function _recalculateRoute(routeId) {
     const aggregatedStopsMap = {};
     
     stops.forEach(client => {
-        // Vytvoříme unikátní klíč na základě GPS zaokrouhlených na 5 desetinných míst
         const geoKey = `${client.lat.toFixed(5)}_${client.lng.toFixed(5)}`;
         
         if (!aggregatedStopsMap[geoKey]) {
@@ -69,26 +68,22 @@ async function _recalculateRoute(routeId) {
                 lat: client.lat,
                 lng: client.lng,
                 address: client.address,
-                clients: [], // Seznam klientů na této adrese
-                serviceDurationMins: 0, // Celkový servisní čas (bude se sčítat)
+                clients: [],
+                serviceDurationMins: 0,
                 arrivalTime: "",
                 sequenceNumber: 0
             };
         }
         
-        // Přidáme klienta do této zastávky
         aggregatedStopsMap[geoKey].clients.push({
             id: client.id,
             name: client.name
         });
         
-        // ⏳ Přičteme servisní čas za každého klienta na této adrese
         aggregatedStopsMap[geoKey].serviceDurationMins += route.serviceDurationMins;
     });
 
-    // Převedeme mapu zpět na pole unikátních fyzických zastávek
     let physicalStops = Object.values(aggregatedStopsMap);
-
     let totalDistance = 0;
     let currentTimeMins = timeToMins(route.startTime); 
     const startMins = currentTimeMins;
@@ -99,7 +94,6 @@ async function _recalculateRoute(routeId) {
     if (route.isAutomatic) {
         console.log(`OSRM /trip optimalizace pro ${physicalStops.length} unikátních zastávek (Trasa: ${routeId})`);
 
-        // Body pro OSRM: Start -> Unikátní zastávky -> Cíl
         const points = [route.startCoords, ...physicalStops, route.endCoords];
         const coordsString = points.map(p => `${p.lng},${p.lat}`).join(';');
         const url = `http://router.project-osrm.org/trip/v1/driving/${coordsString}?source=first&destination=last&overview=false`;
@@ -126,13 +120,11 @@ async function _recalculateRoute(routeId) {
                     stop.arrivalTime = minsToTime(currentTimeMins);
                     stop.sequenceNumber = i;
 
-                    // 🕒 Kurýr stráví na místě čas podle POČTU klientů na této adrese
                     currentTimeMins += stop.serviceDurationMins;
                     
                     orderedStops.push(stop);
                 }
 
-                // Cesta do finálního cíle
                 const finalLegDuration = Math.round(trip.legs[trip.legs.length - 1].duration / 60);
                 currentTimeMins += finalLegDuration;
 
@@ -146,7 +138,6 @@ async function _recalculateRoute(routeId) {
                         if (originalClient) {
                             originalClient.sequenceNumber = pStop.sequenceNumber;
                             originalClient.arrivalTime = pStop.arrivalTime;
-                            // Každý klient na této zastávce vidí celkový čas zdržení na adrese
                             originalClient.serviceDurationMins = pStop.serviceDurationMins; 
                             originalClient.clientsOnStopCount = pStop.clients.length;
                             finalClientStops.push(originalClient);
@@ -154,8 +145,8 @@ async function _recalculateRoute(routeId) {
                     });
                 });
 
-                RouteDao.updateStopsForRoute(routeId, finalClientStops);
-                RouteDao.updateRoute(routeId, {
+                await RouteDao.updateStopsForRoute(routeId, finalClientStops);
+                await RouteDao.updateRoute(routeId, {
                     totalDistance_km: parseFloat((trip.distance / 1000).toFixed(2)),
                     totalDuration_mins: currentTimeMins - startMins,
                     endTime: minsToTime(currentTimeMins)
@@ -170,10 +161,9 @@ async function _recalculateRoute(routeId) {
     // ==========================================
     // 🛠️ MANUÁLNÍ REŽIM / FALLBACK S AGREGACÍ ADRES
     // ==========================================
-    console.log(`Počítám manuální trasu ${routeId} s reálnými časy a sloučenými adresami...`);
+    console.log(`Počítám manuální trasu ${routeId} s reálnými časy...`);
     let currentPoint = route.startCoords;
     
-    // U manuálního řazení musíme seřadit fyzické zastávky podle nejnižšího sequenceNumber jejich klientů
     physicalStops.forEach(pStop => {
         const originalClients = stops.filter(c => pStop.clients.some(pc => pc.id === c.id));
         pStop.sequenceNumber = Math.min(...originalClients.map(c => c.sequenceNumber));
@@ -201,7 +191,6 @@ async function _recalculateRoute(routeId) {
     totalDistance += finalSpecs.distanceKm;
     currentTimeMins += finalSpecs.durationMins;
 
-    // Rozepsání výsledků manuálního režimu zpět jednotlivým klientům
     const finalClientStops = [];
     orderedStopsResult.forEach(pStop => {
         pStop.clients.forEach(clientInfo => {
@@ -216,8 +205,8 @@ async function _recalculateRoute(routeId) {
         });
     });
 
-    RouteDao.updateStopsForRoute(routeId, finalClientStops);
-    RouteDao.updateRoute(routeId, {
+    await RouteDao.updateStopsForRoute(routeId, finalClientStops);
+    await RouteDao.updateRoute(routeId, {
         totalDistance_km: parseFloat(totalDistance.toFixed(2)),
         totalDuration_mins: currentTimeMins - startMins,
         endTime: minsToTime(currentTimeMins)
@@ -225,24 +214,28 @@ async function _recalculateRoute(routeId) {
 }
 
 const RouteAbl = {
-    getCalendar() {
-        return RouteDao.getAllRoutes();
+    async getCalendar() {
+        const routes = await RouteDao.getAllRoutes(); 
+        return routes;
     },
 
-    getRouteDetail(routeId) {
-        const route = RouteDao.getRouteById(routeId);
+    async getRouteDetail(routeId) {
+        const route = await RouteDao.getRouteById(routeId);
         if (!route) throw new Error("Trasa nenalezena.");
 
-        const stops = RouteDao.getStopsByRouteId(routeId);
+        const stops = await RouteDao.getStopsByRouteId(routeId);
+        const depot = await RouteDao.getDepot();
+        
         return {
             ...route,
+            depot: depot,
             stops: stops.sort((a, b) => a.sequenceNumber - b.sequenceNumber)
         };
     },
 
     async createBooking(bookingData) {
         const routeId = bookingData.routeId;
-        const route = RouteDao.getRouteById(routeId);
+        const route = await RouteDao.getRouteById(routeId);
         
         if (!route) throw new Error("Cílová trasa neexistuje.");
         if (route.currentClients >= route.maxClients) throw new Error("Kapacita trasy je plná!");
@@ -258,29 +251,29 @@ const RouteAbl = {
             arrivalTime: ""
         };
 
-        RouteDao.addStop(newStop);
-        RouteDao.updateRoute(routeId, { currentClients: route.currentClients + 1 });
+        await RouteDao.addStop(newStop);
+        await RouteDao.updateRoute(routeId, { currentClients: route.currentClients + 1 });
         
         await _recalculateRoute(routeId);
         return newStop;
     },
 
     async deleteBooking(id) {
-        const deletedStop = RouteDao.deleteStop(id);
+        const deletedStop = await RouteDao.deleteStop(id);
         if (!deletedStop) throw new Error("Klient nenalezen.");
 
         const routeId = deletedStop.routeId;
-        const route = RouteDao.getRouteById(routeId);
+        const route = await RouteDao.getRouteById(routeId);
         
         if (route) {
-            RouteDao.updateRoute(routeId, { currentClients: Math.max(0, route.currentClients - 1) });
+            await RouteDao.updateRoute(routeId, { currentClients: Math.max(0, route.currentClients - 1) });
             await _recalculateRoute(routeId);
         }
         return { message: "Klient odhlášen, trasa přepočítána." };
     },
 
     async updateConfig(routeId, configData) {
-        const updatedRoute = RouteDao.updateRoute(routeId, configData);
+        const updatedRoute = await RouteDao.updateRoute(routeId, configData);
         if (!updatedRoute) throw new Error("Trasa nenalezena.");
 
         await _recalculateRoute(routeId);
@@ -288,7 +281,7 @@ const RouteAbl = {
     }
 };
 
-// Spuštění prvotní optimalizace po startu serveru pro obě výchozí trasy
+// Spuštění prvotní optimalizace po startu serveru
 setTimeout(async () => {
     await _recalculateRoute("r1");
     await _recalculateRoute("r2");

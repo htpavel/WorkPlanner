@@ -297,7 +297,13 @@ const RouteAbl = {
 
         await _recalculateRoute(routeId);
         return updatedRoute;
-    }
+    },
+
+    async updateStopStatus(stopId, status) {
+    const updatedStop = await RouteDao.updateStopStatus(stopId, status);
+    if (!updatedStop) throw new Error("Zastávka nebyla nalezena.");
+    return updatedStop;
+}
 };
 
 // Spuštění prvotní optimalizace po startu serveru

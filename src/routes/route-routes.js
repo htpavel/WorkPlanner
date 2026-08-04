@@ -5,7 +5,6 @@ const { authenticateToken, authorizeRoles } = require('../middleware/auth-middle
 
 /**
  * 🟢 GET /api/route/calendar
- * Přístupné všem přihlášeným uživatelům
  */
 router.get('/calendar', authenticateToken, async (req, res) => {
     try {
@@ -18,7 +17,6 @@ router.get('/calendar', authenticateToken, async (req, res) => {
 
 /**
  * 🟢 GET /api/route/detail/:id
- * Volá v ABL metodu getRouteDetail(id)
  */
 router.get('/detail/:id', authenticateToken, async (req, res) => {
     try {
@@ -31,7 +29,6 @@ router.get('/detail/:id', authenticateToken, async (req, res) => {
 
 /**
  * 🟢 POST /api/route/booking
- * Vytvoření rezervace a automatický přepočet trasy přes OSRM
  */
 router.post('/booking', authenticateToken, async (req, res) => {
     try {
@@ -44,7 +41,6 @@ router.post('/booking', authenticateToken, async (req, res) => {
 
 /**
  * 🔒 PATCH /api/route/config/:id
- * Změna nastavení trasy (POUZE DISPATCHER)
  */
 router.patch('/config/:id', authenticateToken, authorizeRoles('DISPATCHER'), async (req, res) => {
     try {
@@ -57,7 +53,6 @@ router.patch('/config/:id', authenticateToken, authorizeRoles('DISPATCHER'), asy
 
 /**
  * 🔒 DELETE /api/route/stop/:id
- * Smazání/zrušení rezervace zastávky + automatický přepočet
  */
 router.delete('/stop/:id', authenticateToken, async (req, res) => {
     try {

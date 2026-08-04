@@ -56,9 +56,7 @@ async function _recalculateRoute(routeId) {
         return;
     }
 
-    // ==========================================
     // 🔍 1. KROK: Sloučení klientů se stejnými GPS do fyzických zastávek
-    // ==========================================
     const aggregatedStopsMap = {};
 
     stops.forEach(client => {
@@ -89,9 +87,7 @@ async function _recalculateRoute(routeId) {
     let currentTimeMins = timeToMins(route.startTime);
     const startMins = currentTimeMins;
 
-    // ==========================================
     // 🗺️ 2. KROK: Výpočet trasy a časů
-    // ==========================================
     if (route.isAutomatic) {
         console.log(`OSRM /trip optimalizace pro ${physicalStops.length} unikátních zastávek (Trasa: ${routeId})`);
 
@@ -129,9 +125,7 @@ async function _recalculateRoute(routeId) {
                 const finalLegDuration = Math.round(trip.legs[trip.legs.length - 1].duration / 60);
                 currentTimeMins += finalLegDuration;
 
-                // ==========================================
                 // 💾 3. KROK: Rozepsání výsledků zpět jednotlivým klientům do DAO
-                // ==========================================
                 const finalClientStops = [];
                 orderedStops.forEach(pStop => {
                     pStop.clients.forEach(clientInfo => {
@@ -159,9 +153,7 @@ async function _recalculateRoute(routeId) {
         }
     }
 
-    // ==========================================
     // 🛠️ MANUÁLNÍ REŽIM / FALLBACK S AGREGACÍ ADRES
-    // ==========================================
     console.log(`Počítám manuální trasu ${routeId} s reálnými časy...`);
     let currentPoint = route.startCoords;
 
@@ -245,7 +237,6 @@ const RouteAbl = {
         let lat = bookingData.lat;
         let lng = bookingData.lng;
 
-        // Pokud předáme addressId, načteme souřadnice a text adresy z databáze adres
         if (bookingData.addressId) {
             const savedAddress = await AddressDao.getById(bookingData.addressId);
             if (!savedAddress) throw new Error("Vybraná doručovací adresa neexistuje.");
@@ -300,13 +291,12 @@ const RouteAbl = {
     },
 
     async updateStopStatus(stopId, status) {
-    const updatedStop = await RouteDao.updateStopStatus(stopId, status);
-    if (!updatedStop) throw new Error("Zastávka nebyla nalezena.");
-    return updatedStop;
-}
+        const updatedStop = await RouteDao.updateStopStatus(stopId, status);
+        if (!updatedStop) throw new Error("Zastávka nebyla nalezena.");
+        return updatedStop;
+    }
 };
 
-// Spuštění prvotní optimalizace po startu serveru
 setTimeout(async () => {
     await _recalculateRoute("r1");
     await _recalculateRoute("r2");

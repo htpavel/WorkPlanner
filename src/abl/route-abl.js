@@ -364,6 +364,40 @@ const RouteAbl = {
         const updatedStop = await RouteDao.updateStopStatus(stopId, status);
         if (!updatedStop) throw new Error("Zastávka nebyla nalezena.");
         return updatedStop;
+    },
+
+    /**
+     * Ruční přeuspořádání zastávek a přepnutí trasy na isAutomatic = false
+     */
+    async reorderStops(routeId, stopIds) {
+        const stops = await RouteDao.getStopsByRouteId(routeId);
+
+        // Aktualizace pořadí podle obdrženého pole ID
+        const updatedStops = [];
+        stopIds.forEach((id, index) => {
+            const stop = stops.find(s => String(s.id) === String(id));
+            if (stop) {
+                stop.sequenceNumber = index + 1;
+                updatedStops.push(stop);
+            }
+        });
+
+        // Nastavíme isAutomatic na false, aby se drželo ruční pořadí
+        await RouteDao.updateRoute(routeId, { isAutomatic: false });
+        await RouteDao.updateStopsForRoute(routeId, updatedStops);
+
+        // Přepočítáme časy a vzdálenosti pro nové ruční pořadí
+        await _recalculateRoute(routeId);
+        return { message: "Pořadí zastávek bylo ručně upraveno." };
+    },
+
+    /**
+     * Přepnutí trasy na isAutomatic = true a přepočet AI přes OSRM
+     */
+    async optimizeRoute(routeId) {
+        await RouteDao.updateRoute(routeId, { isAutomatic: true });
+        await _recalculateRoute(routeId);
+        return { message: "Trasa byla úspěšně optimalizována pomocí AI." };
     }
 };
 

@@ -54,6 +54,32 @@ router.post('/booking', authenticateToken, async (req, res) => {
 });
 
 /**
+ * 🔒 PUT /api/route/:id/reorder
+ * Ruční změna pořadí zastávek
+ */
+router.put('/:id/reorder', authenticateToken, async (req, res) => {
+    try {
+        const result = await RouteAbl.reorderStops(req.params.id, req.body.stopIds);
+        res.json(result);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * 🔒 POST /api/route/:id/optimize
+ * Opětovné spuštění AI optimalizace OSRM
+ */
+router.post('/:id/optimize', authenticateToken, async (req, res) => {
+    try {
+        const result = await RouteAbl.optimizeRoute(req.params.id);
+        res.json(result);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
  * 🔒 PATCH /api/route/config/:id
  */
 router.patch('/config/:id', authenticateToken, authorizeRoles('DISPATCHER'), async (req, res) => {

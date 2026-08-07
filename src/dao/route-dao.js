@@ -106,20 +106,20 @@ const RouteDao = {
     /**
      * 🆕 Uložení nové trasy do databáze (PostgreSQL + PostGIS)
      */
-    async createRoute(route) {
+   async createRoute(route) {
         const query = `
             INSERT INTO routes (
-                id, date, name, is_automatic, max_clients, current_clients, 
+                id, date, name, location, is_automatic, max_clients, current_clients, 
                 start_time, end_time, start_coords, end_coords, 
                 service_duration_mins, total_distance_km, total_duration_mins
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, 
-                ST_SetSRID(ST_MakePoint($9, $10), 4326), 
-                ST_SetSRID(ST_MakePoint($11, $12), 4326), 
-                $13, $14, $15
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, 
+                ST_SetSRID(ST_MakePoint($10, $11), 4326), 
+                ST_SetSRID(ST_MakePoint($12, $13), 4326), 
+                $14, $15, $16
             )
-            RETURNING id, date, name, is_automatic, max_clients, current_clients, start_time, end_time,
+            RETURNING id, date, name, location, is_automatic, max_clients, current_clients, start_time, end_time,
                       ST_Y(start_coords) as start_lat, ST_X(start_coords) as start_lng,
                       ST_Y(end_coords) as end_lat, ST_X(end_coords) as end_lng,
                       service_duration_mins, total_distance_km, total_duration_mins;
@@ -129,6 +129,7 @@ const RouteDao = {
             route.id,
             route.date,
             route.name,
+            route.location || route.startName || route.name || 'Pardubický kraj', // 👈 Přidáno location s fallbackem
             route.isAutomatic !== undefined ? route.isAutomatic : true,
             route.maxClients || 5,
             route.currentClients || 0,

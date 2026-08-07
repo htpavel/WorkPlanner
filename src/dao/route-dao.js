@@ -6,10 +6,8 @@ const path = require('path');
 // 🔌 NASTAVENÍ PŘIPOJENÍ K DATABÁZI
 // ==========================================
 
-// 1. Pokusíme se vzít URL z environmentálních proměnných (standard pro produkční deployment)
 let connectionString = process.env.DATABASE_URL;
 
-// 2. Pokud v environmentu nic není, zkusíme načíst lokální config.json
 if (!connectionString) {
     try {
         const configPath = path.join(__dirname, '../../config.json');
@@ -26,7 +24,6 @@ if (!connectionString) {
     console.log("🚀 Připojeno k databázi pomocí systémové proměnné DATABASE_URL");
 }
 
-// Pojistka pro případ, že chybí obojí
 if (!connectionString) {
     console.error("❌ CHYBA: Nebyl nalezen žádný connection string pro databázi! Nastav DATABASE_URL v .env nebo vytvoř config.json.");
     process.exit(1);
@@ -34,7 +31,7 @@ if (!connectionString) {
 
 const pool = new Pool({
     connectionString: connectionString,
-    ssl: { rejectUnauthorized: false } // Vyžadováno Neonem pro bezpečné SSL připojení
+    ssl: { rejectUnauthorized: false }
 });
 
 // ==========================================
@@ -42,12 +39,11 @@ const pool = new Pool({
 // ==========================================
 
 const RouteDao = {
-    // Pomocná metoda pro transformaci DB objektu trasy na náš JS formát
     _mapRoute(dbRow) {
         if (!dbRow) return null;
         return {
             id: dbRow.id,
-            date: dbRow.date.toISOString().split('T')[0],
+            date: dbRow.date ? new Date(dbRow.date).toISOString().split('T')[0] : null,
             name: dbRow.name,
             location: dbRow.location,
             isAutomatic: dbRow.is_automatic,
@@ -63,7 +59,6 @@ const RouteDao = {
         };
     },
 
-    // Pomocná metoda pro transformaci DB objektu rezervace
     _mapStop(dbRow) {
         if (!dbRow) return null;
         return {
@@ -108,12 +103,55 @@ const RouteDao = {
         return this._mapRoute(rows[0]);
     },
 
+    /**
+     * 🆕 Uložení nové trasy do databáze (PostgreSQL + PostGIS)
+     */
+    async createRoute(route) {
+        const query = `
+            INSERT INTO routes (
+                id, date, name, is_automatic, max_clients, current_clients, 
+                start_time, end_time, start_coords, end_coords, 
+                service_duration_mins, total_distance_km, total_duration_mins
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, 
+                ST_SetSRID(ST_MakePoint($9, $10), 4326), 
+                ST_SetSRID(ST_MakePoint($11, $12), 4326), 
+                $13, $14, $15
+            )
+            RETURNING id, date, name, is_automatic, max_clients, current_clients, start_time, end_time,
+                      ST_Y(start_coords) as start_lat, ST_X(start_coords) as start_lng,
+                      ST_Y(end_coords) as end_lat, ST_X(end_coords) as end_lng,
+                      service_duration_mins, total_distance_km, total_duration_mins;
+        `;
+
+        const values = [
+            route.id,
+            route.date,
+            route.name,
+            route.isAutomatic !== undefined ? route.isAutomatic : true,
+            route.maxClients || 5,
+            route.currentClients || 0,
+            route.startTime || '08:00',
+            route.endTime || '16:00',
+            route.startCoords ? route.startCoords.lng : 15.9926,
+            route.startCoords ? route.startCoords.lat : 49.9928,
+            route.endCoords ? route.endCoords.lng : 15.9926,
+            route.endCoords ? route.endCoords.lat : 49.9928,
+            route.serviceDurationMins || 10,
+            route.totalDistance_km || 0,
+            route.totalDuration_mins || 0
+        ];
+
+        const { rows } = await pool.query(query, values);
+        return this._mapRoute(rows[0]);
+    },
+
     async updateRoute(id, fields) {
         const setClauses = [];
         const values = [];
         let index = 1;
 
-        // Mapování camelCase (JS) na snake_case (SQL)
         const dbMapping = {
             isAutomatic: 'is_automatic',
             maxClients: 'max_clients',
@@ -164,10 +202,8 @@ const RouteDao = {
         try {
             await client.query('BEGIN');
             
-            // Smažeme staré zastávky trasy
             await client.query('DELETE FROM bookings WHERE route_id = $1', [routeId]);
             
-            // Postupně vložíme nové s přepočítaným pořadím a ETA
             for (const stop of newStops) {
                 await client.query(`
                     INSERT INTO bookings (id, route_id, name, address, coords, sequence_number, arrival_time)

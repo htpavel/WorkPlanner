@@ -212,9 +212,20 @@ async function _recalculateRoute(routeId) {
 }
 
 const RouteAbl = {
-    async getCalendar() {
+    // v abl/route-abl.js
+
+    async getCalendar(includeArchived = false) {
         const routes = await RouteDao.getAllRoutes();
-        return routes;
+
+        if (includeArchived) {
+            return routes;
+        }
+
+        // Získání dnešního data v ISO formátu YYYY-MM-DD
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        // Filtrujeme pouze trasy, jejichž datum je dnešní nebo budoucí
+        return routes.filter(route => route.date >= todayStr);
     },
 
     async getRouteDetail(routeId) {

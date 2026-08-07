@@ -8,7 +8,8 @@ const { authenticateToken, authorizeRoles } = require('../middleware/auth-middle
  */
 router.get('/calendar', authenticateToken, async (req, res) => {
     try {
-        const routes = await RouteAbl.getCalendar();
+        const includeArchived = req.query.includeArchived === 'true';
+        const routes = await RouteAbl.getCalendar(includeArchived);
         res.json(routes);
     } catch (error) {
         res.status(500).json({ error: error.message });

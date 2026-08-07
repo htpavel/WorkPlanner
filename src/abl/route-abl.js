@@ -263,7 +263,8 @@ const RouteAbl = {
             date: routeData.date,
             startTime: routeData.startTime || '08:00',
             endTime: routeData.endTime || '16:00',
-            maxClients: Number(routeData.maxStops) || 5,
+            maxClients: Number(routeData.maxStops || routeData.maxClients || 5), // 👈
+            maxStops: Number(routeData.maxStops || routeData.maxClients || 5),   // 👈
             currentClients: 0,
             serviceDurationMins: 10,
             isAutomatic: true,

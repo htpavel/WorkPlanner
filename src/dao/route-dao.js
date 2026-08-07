@@ -106,7 +106,7 @@ const RouteDao = {
     /**
      * 🆕 Uložení nové trasy do databáze (PostgreSQL + PostGIS)
      */
-   async createRoute(route) {
+    async createRoute(route) {
         const query = `
             INSERT INTO routes (
                 id, date, name, location, is_automatic, max_clients, current_clients, 
@@ -129,9 +129,9 @@ const RouteDao = {
             route.id,
             route.date,
             route.name,
-            route.location || route.startName || route.name || 'Pardubický kraj', // 👈 Přidáno location s fallbackem
+            route.location || route.startName || route.name || 'Pardubický kraj',
             route.isAutomatic !== undefined ? route.isAutomatic : true,
-            route.maxClients || 5,
+            route.maxClients || route.maxStops || 5, // 👈 Opraveno: čte maxClients i maxStops
             route.currentClients || 0,
             route.startTime || '08:00',
             route.endTime || '16:00',
@@ -202,16 +202,16 @@ const RouteDao = {
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
-            
+
             await client.query('DELETE FROM bookings WHERE route_id = $1', [routeId]);
-            
+
             for (const stop of newStops) {
                 await client.query(`
                     INSERT INTO bookings (id, route_id, name, address, coords, sequence_number, arrival_time)
                     VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), $7, $8)
                 `, [stop.id, routeId, stop.name, stop.address, stop.lng, stop.lat, stop.sequenceNumber, stop.arrivalTime || '']);
             }
-            
+
             await client.query('COMMIT');
             return newStops;
         } catch (error) {

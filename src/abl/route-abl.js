@@ -16,6 +16,7 @@ function minsToTime(totalMins) {
 
 // Nouzový matematický výpočet vzdušnou čarou, pokud by OSRM selhalo
 function getDistanceFallback(p1, p2) {
+    if (!p1 || !p2 || p1.lat == null || p2.lat == null) return 0;
     const R = 6371;
     const dLat = (p2.lat - p1.lat) * Math.PI / 180;
     const dLng = (p2.lng - p1.lng) * Math.PI / 180;
@@ -27,6 +28,7 @@ function getDistanceFallback(p1, p2) {
 
 // Pomocný asynchronní fetch pro manuální režim (spojnice bodů A -> B)
 async function getRealRouteSpecs(p1, p2) {
+    if (!p1 || !p2 || p1.lat == null || p2.lat == null) return { distanceKm: 0, durationMins: 0 };
     const url = `http://router.project-osrm.org/route/v1/driving/${p1.lng},${p1.lat};${p2.lng},${p2.lat}?overview=false`;
     try {
         const response = await fetch(url);
@@ -51,7 +53,7 @@ async function _recalculateRoute(routeId) {
     if (!route) return;
 
     const stops = await RouteDao.getStopsByRouteId(routeId);
-    if (stops.length === 0) {
+    if (!stops || stops.length === 0) {
         await RouteDao.updateRoute(routeId, { totalDistance_km: 0, totalDuration_mins: 0, endTime: route.startTime });
         return;
     }
@@ -79,7 +81,7 @@ async function _recalculateRoute(routeId) {
             name: client.name
         });
 
-        aggregatedStopsMap[geoKey].serviceDurationMins += route.serviceDurationMins;
+        aggregatedStopsMap[geoKey].serviceDurationMins += (route.serviceDurationMins || 10);
     });
 
     let physicalStops = Object.values(aggregatedStopsMap);
@@ -87,11 +89,14 @@ async function _recalculateRoute(routeId) {
     let currentTimeMins = timeToMins(route.startTime);
     const startMins = currentTimeMins;
 
+    const startCoords = route.startCoords || { lat: 50.0385, lng: 15.7792 };
+    const endCoords = route.endCoords || startCoords;
+
     // 🗺️ 2. KROK: Výpočet trasy a časů
     if (route.isAutomatic) {
         console.log(`OSRM /trip optimalizace pro ${physicalStops.length} unikátních zastávek (Trasa: ${routeId})`);
 
-        const points = [route.startCoords, ...physicalStops, route.endCoords];
+        const points = [startCoords, ...physicalStops, endCoords];
         const coordsString = points.map(p => `${p.lng},${p.lat}`).join(';');
         const url = `http://router.project-osrm.org/trip/v1/driving/${coordsString}?source=first&destination=last&overview=false`;
 
@@ -155,7 +160,7 @@ async function _recalculateRoute(routeId) {
 
     // 🛠️ MANUÁLNÍ REŽIM / FALLBACK S AGREGACÍ ADRES
     console.log(`Počítám manuální trasu ${routeId} s reálnými časy...`);
-    let currentPoint = route.startCoords;
+    let currentPoint = startCoords;
 
     physicalStops.forEach(pStop => {
         const originalClients = stops.filter(c => pStop.clients.some(pc => pc.id === c.id));
@@ -180,7 +185,7 @@ async function _recalculateRoute(routeId) {
         orderedStopsResult.push(pStop);
     }
 
-    const finalSpecs = await getRealRouteSpecs(currentPoint, route.endCoords);
+    const finalSpecs = await getRealRouteSpecs(currentPoint, endCoords);
     totalDistance += finalSpecs.distanceKm;
     currentTimeMins += finalSpecs.durationMins;
 
@@ -224,6 +229,59 @@ const RouteAbl = {
             depot: depot,
             stops: stops.sort((a, b) => a.sequenceNumber - b.sequenceNumber)
         };
+    },
+
+    /**
+     * 🆕 VYTVOŘENÍ NOVÉ TRASY (DISPEČINK)
+     */
+    async createRoute(routeData) {
+        if (!routeData.name || !routeData.date) {
+            throw new Error("Název trasy a datum jsou povinné parametry.");
+        }
+
+        // Přebírání souřadnic nebo nastavení výchozího depa
+        let startCoords = null;
+        if (routeData.startLat && routeData.startLng) {
+            startCoords = { lat: Number(routeData.startLat), lng: Number(routeData.startLng) };
+        } else {
+            const depot = await RouteDao.getDepot();
+            startCoords = depot ? { lat: depot.lat, lng: depot.lng } : { lat: 50.0385, lng: 15.7792 };
+        }
+
+        let endCoords = null;
+        if (routeData.endLat && routeData.endLng) {
+            endCoords = { lat: Number(routeData.endLat), lng: Number(routeData.endLng) };
+        } else {
+            endCoords = startCoords;
+        }
+
+        const newRouteId = `r_${Date.now()}`;
+
+        const newRoute = {
+            id: newRouteId,
+            name: routeData.name,
+            date: routeData.date,
+            startTime: routeData.startTime || '08:00',
+            endTime: routeData.endTime || '16:00',
+            maxClients: Number(routeData.maxStops) || 5,
+            currentClients: 0,
+            serviceDurationMins: 10,
+            isAutomatic: true,
+            startName: routeData.startName || 'Start / Depo',
+            startAddress: routeData.startAddress || '',
+            startCoords: startCoords,
+            endName: routeData.endName || 'Cíl / Depo',
+            endAddress: routeData.endAddress || '',
+            endCoords: endCoords,
+            totalDistance_km: 0,
+            totalDuration_mins: 0
+        };
+
+        // Uložení trasy přes DAO
+        await RouteDao.createRoute(newRoute);
+        await _recalculateRoute(newRouteId);
+
+        return newRoute;
     },
 
     async createBooking(bookingData) {

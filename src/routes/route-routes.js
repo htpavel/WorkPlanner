@@ -28,6 +28,19 @@ router.get('/detail/:id', authenticateToken, async (req, res) => {
 });
 
 /**
+ * 🔒 POST /api/route/create
+ * Vytvoření nové trasy dispečerem
+ */
+router.post('/create', authenticateToken, authorizeRoles('DISPATCHER'), async (req, res) => {
+    try {
+        const result = await RouteAbl.createRoute(req.body);
+        res.status(201).json(result);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
  * 🟢 POST /api/route/booking
  */
 router.post('/booking', authenticateToken, async (req, res) => {

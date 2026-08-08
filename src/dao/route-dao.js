@@ -51,6 +51,11 @@ const RouteDao = {
             currentClients: dbRow.current_clients,
             startTime: dbRow.start_time,
             endTime: dbRow.end_time,
+            // 🆕 Načtení konkrétních názvů a adres zadaných dispečerem
+            startName: dbRow.start_name || dbRow.start_address || 'Startovní bod',
+            startAddress: dbRow.start_address || '',
+            endName: dbRow.end_name || dbRow.end_address || 'Cílový bod',
+            endAddress: dbRow.end_address || '',
             startCoords: { lat: dbRow.start_lat, lng: dbRow.start_lng },
             endCoords: { lat: dbRow.end_lat, lng: dbRow.end_lng },
             serviceDurationMins: dbRow.service_duration_mins,
@@ -79,7 +84,8 @@ const RouteDao = {
 
     async getAllRoutes() {
         const query = `
-            SELECT id, date, name, location, is_automatic, max_clients, current_clients, start_time, end_time,
+            SELECT id, date, name, location, is_automatic, max_clients, current_clients, 
+                   start_time, end_time, start_name, start_address, end_name, end_address,
                    ST_Y(start_coords) as start_lat, ST_X(start_coords) as start_lng,
                    ST_Y(end_coords) as end_lat, ST_X(end_coords) as end_lng,
                    service_duration_mins, total_distance_km, total_duration_mins
@@ -92,7 +98,8 @@ const RouteDao = {
 
     async getRouteById(id) {
         const query = `
-            SELECT id, date, name, location, is_automatic, max_clients, current_clients, start_time, end_time,
+            SELECT id, date, name, location, is_automatic, max_clients, current_clients, 
+                   start_time, end_time, start_name, start_address, end_name, end_address,
                    ST_Y(start_coords) as start_lat, ST_X(start_coords) as start_lng,
                    ST_Y(end_coords) as end_lat, ST_X(end_coords) as end_lng,
                    service_duration_mins, total_distance_km, total_duration_mins

@@ -233,11 +233,14 @@ const RouteAbl = {
         if (!route) throw new Error("Trasa nenalezena.");
 
         const stops = await RouteDao.getStopsByRouteId(routeId);
-        const depot = await RouteDao.getDepot();
 
         return {
             ...route,
-            depot: depot,
+            // Explicitní zachování zadaných názvů a adres pro Start i Cíl
+            startName: route.startName || 'Start',
+            startAddress: route.startAddress || '',
+            endName: route.endName || 'Cíl',
+            endAddress: route.endAddress || '',
             stops: stops.sort((a, b) => a.sequenceNumber - b.sequenceNumber)
         };
     },

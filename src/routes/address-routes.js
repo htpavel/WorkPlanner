@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const AddressDao = require('../dao/address-dao');
+const { authenticateToken } = require('../middleware/auth-middleware');
 
 /**
  * GET /api/address/user/:userId - Načtení všech adres daného uživatele
@@ -8,6 +9,19 @@ const AddressDao = require('../dao/address-dao');
 router.get('/user/:userId', async (req, res) => {
     try {
         const addresses = await AddressDao.getByUserId(req.params.userId);
+        res.json(addresses);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/address
+ * Načtení všech adres registrovaných uživatelů
+ */
+router.get('/', authenticateToken, async (req, res) => {
+    try {
+        const addresses = await AddressDao.getAllWithUsers();
         res.json(addresses);
     } catch (error) {
         res.status(500).json({ error: error.message });

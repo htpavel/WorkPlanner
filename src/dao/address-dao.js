@@ -22,6 +22,22 @@ const AddressDao = {
         };
     },
 
+    // Načte úplně všechny adresy napříč uživateli včetně jejich jmen (pro dispečera)
+    async getAllWithUsers() {
+        const query = `
+            SELECT ua.id, ua.user_id, ua.label, ua.address, ua.lat, ua.lng, ua.is_default,
+                   u.name as user_name
+            FROM user_addresses ua
+            LEFT JOIN users u ON ua.user_id = u.id
+            ORDER BY u.name ASC, ua.id ASC;
+        `;
+        const { rows } = await pool.query(query);
+        return rows.map(row => ({
+            ...this._mapAddress(row),
+            userName: row.user_name || 'Neznámý uživatel'
+        }));
+    },
+
     // Načte všechny adresy jednoho uživatele
     async getByUserId(userId) {
         const query = `
